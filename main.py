@@ -11,6 +11,8 @@ import importlib
 from utils import *;
 import Optim
 
+import wandb
+
 def evaluate(data, X, Y, model, evaluateL2, evaluateL1, batch_size):
     model.eval();
     total_loss = 0;
@@ -29,8 +31,10 @@ def evaluate(data, X, Y, model, evaluateL2, evaluateL1, batch_size):
             test = torch.cat((test, Y));
         
         scale = data.scale.expand(output.size(0), data.m)
-        total_loss += evaluateL2(output * scale, Y * scale).data[0]
-        total_loss_l1 += evaluateL1(output * scale, Y * scale).data[0]
+        # total_loss += evaluateL2(output * scale, Y * scale).data[0]
+        # total_loss_l1 += evaluateL1(output * scale, Y * scale).data[0]
+        total_loss += evaluateL2(output * scale, Y * scale).data.item()
+        total_loss_l1 += evaluateL1(output * scale, Y * scale).data.item()
         n_samples += (output.size(0) * data.m);
     rse = math.sqrt(total_loss / n_samples)/data.rse
     rae = (total_loss_l1/n_samples)/data.rae
@@ -57,7 +61,8 @@ def train(data, X, Y, model, criterion, optim, batch_size):
         loss = criterion(output * scale, Y * scale);
         loss.backward();
         grad_norm = optim.step();
-        total_loss += loss.data[0];
+        # total_loss += loss.data[0];
+        total_loss += loss.data.item();
         n_samples += (output.size(0) * data.m);
     return total_loss / n_samples
     
@@ -114,6 +119,10 @@ if torch.cuda.is_available():
         torch.cuda.manual_seed(args.seed)
 
 Data = Data_utility(args.data, 0.6, 0.2, args.cuda, args.horizon, args.window, args.normalize);
+print(Data.train[0].size(), Data.train[1].size())
+print(Data.valid[0].size(), Data.valid[1].size())
+print(Data.test[0].size(), Data.test[1].size())
+raise NameError('stop')
 print(Data.rse);
 
 model = eval(args.model).Model(args, Data);
@@ -141,6 +150,13 @@ optim = Optim.Optim(
     model.parameters(), args.optim, args.lr, args.clip,
 )
 
+# Initialize wandb
+wandb.init(
+    project="RNN",
+    config={
+    }
+)
+
 # At any point you can hit Ctrl + C to break out of training early.
 try:
     print('begin training');
@@ -149,19 +165,34 @@ try:
         train_loss = train(Data, Data.train[0], Data.train[1], model, criterion, optim, args.batch_size)
         val_loss, val_rae, val_corr = evaluate(Data, Data.valid[0], Data.valid[1], model, evaluateL2, evaluateL1, args.batch_size);
         print('| end of epoch {:3d} | time: {:5.2f}s | train_loss {:5.4f} | valid rse {:5.4f} | valid rae {:5.4f} | valid corr  {:5.4f}'.format(epoch, (time.time() - epoch_start_time), train_loss, val_loss, val_rae, val_corr))
+        wandb.log({
+                "train/loss": train_loss,
+                "val/loss": val_loss,
+                "val/rae": val_rae,
+                "val/corr": val_corr
+            })
+        
         # Save the model if the validation loss is the best we've seen so far.
-
         if val_loss < best_val:
             with open(args.save, 'wb') as f:
                 torch.save(model, f)
+                # save_model(model, f)
             best_val = val_loss
         if epoch % 5 == 0:
             test_acc, test_rae, test_corr  = evaluate(Data, Data.test[0], Data.test[1], model, evaluateL2, evaluateL1, args.batch_size);
             print ("test rse {:5.4f} | test rae {:5.4f} | test corr {:5.4f}".format(test_acc, test_rae, test_corr))
+            wandb.log({
+                    "test/loss": test_acc,
+                    "test/rae": test_rae,
+                    "test/corr": test_corr
+                })
+        
+    wandb.finish()
 
 except KeyboardInterrupt:
     print('-' * 89)
     print('Exiting from training early')
+
 
 # Load the best saved model.
 with open(args.save, 'rb') as f:

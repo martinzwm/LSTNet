@@ -13,16 +13,19 @@ class Model(nn.Module):
         self.hidS = args.hidSkip;
         self.Ck = args.CNN_kernel;
         self.skip = args.skip;
+        # disabled skip connection for now, just run simple RNN
+        self.skip = -float("inf")
+
         self.pt = (self.P - self.Ck)/self.skip
         self.hw = args.highway_window
-        self.conv1 = nn.Conv2d(1, self.hidC, kernel_size = (self.Ck, self.m));
+        self.conv1 = nn.Conv2d(1, self.hidC, kernel_size = (self.Ck, self.m)); # [100, 1, 6, 321]
         self.GRU1 = nn.GRU(self.hidC, self.hidR);
         self.dropout = nn.Dropout(p = args.dropout);
         if (self.skip > 0):
             self.GRUskip = nn.GRU(self.hidC, self.hidS);
             self.linear1 = nn.Linear(self.hidR + self.skip * self.hidS, self.m);
         else:
-            self.linear1 = nn.Linear(self.hidR, self.m);
+            self.linear1 = nn.Linear(self.hidR, self.m); # [321, 100]
         if (self.hw > 0):
             self.highway = nn.Linear(self.hw, 1);
         self.output = None;
@@ -35,21 +38,23 @@ class Model(nn.Module):
         batch_size = x.size(0);
         
         #CNN
-        c = x.view(-1, 1, self.P, self.m);
-        c = F.relu(self.conv1(c));
+        c = x.view(-1, 1, self.P, self.m); # [128, 1, 168, 321]
+        c = F.relu(self.conv1(c)); # [128, 100, 163, 1]
         c = self.dropout(c);
-        c = torch.squeeze(c, 3);
+        c = torch.squeeze(c, 3); # [128, 100, 163]
         
         # RNN 
-        r = c.permute(2, 0, 1).contiguous();
-        _, r = self.GRU1(r);
+        r = c.permute(2, 0, 1).contiguous(); # [163, 128, 100]
+        _, r = self.GRU1(r); # [1, 128, 100]
         r = self.dropout(torch.squeeze(r,0));
 
         
         #skip-rnn
-        
         if (self.skip > 0):
             s = c[:,:, int(-self.pt * self.skip):].contiguous();
+            # print(batch_size, self.hidC, self.pt, self.skip)
+            # print(type(batch_size), type(self.hidC), type(self.pt), type(self.skip))
+            # raise NameError("debug")
             s = s.view(batch_size, self.hidC, self.pt, self.skip);
             s = s.permute(2,0,3,1).contiguous();
             s = s.view(self.pt, batch_size * self.skip, self.hidC);
@@ -58,9 +63,7 @@ class Model(nn.Module):
             s = self.dropout(s);
             r = torch.cat((r,s),1);
         
-        res = self.linear1(r);
-        
-        #highway
+        #highway - give more weight to recent data
         if (self.hw > 0):
             z = x[:, -self.hw:, :];
             z = z.permute(0,2,1).contiguous().view(-1, self.hw);
