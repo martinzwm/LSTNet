@@ -11,6 +11,7 @@ class Model(nn.Module):
         self.hidR = args.hidRNN;
         self.hidC = args.hidCNN;
         self.hidS = args.hidSkip;
+        self.hidPhys = args.hidPhys;
         self.Ck = args.CNN_kernel;
         self.skip = args.skip;
         # disabled skip connection for now, just run simple RNN
@@ -24,6 +25,8 @@ class Model(nn.Module):
         if (self.skip > 0):
             self.GRUskip = nn.GRU(self.hidC, self.hidS);
             self.linear1 = nn.Linear(self.hidR + self.skip * self.hidS, self.m);
+        elif (self.hidPhys > 0):
+            self.linear1 = nn.Linear(self.hidR + self.hidPhys, self.m); 
         else:
             self.linear1 = nn.Linear(self.hidR, self.m); # [321, 100]
         if (self.hw > 0):
@@ -48,6 +51,10 @@ class Model(nn.Module):
         _, r = self.GRU1(r); # [1, 128, 100]
         r = self.dropout(torch.squeeze(r,0));
 
+        # Physical knowledge
+        if (self.hidPhys > 0):
+            physics = self.physical_knowledge(x); # [128, 3]
+            r = torch.cat((r, physics), 1); # [128, 103]
         
         #skip-rnn
         if (self.skip > 0):
@@ -62,6 +69,8 @@ class Model(nn.Module):
             s = s.view(batch_size, self.skip * self.hidS);
             s = self.dropout(s);
             r = torch.cat((r,s),1);
+
+        res = self.linear1(r); # [128, 321];
         
         #highway - give more weight to recent data
         if (self.hw > 0):
@@ -76,5 +85,25 @@ class Model(nn.Module):
         return res;
     
         
-        
+    def physical_knowledge(self, x):
+        """ 
+        Compute physical knowledge from the input data.
+        Physical knowledge includes the trend, variance across time, variance across population
+        Input:
+            x: [batch_size, P, m]
+        Output:
+            return: [batch_size, 3]
+        """
+        # trend
+        trend = torch.mean(x[:, -5:, :] - x[:, :5, :], 1);
+        trend = torch.mean(trend, 1);
+        # variance across time
+        var_time = torch.var(x, 1);
+        var_time = torch.mean(var_time, 1);
+        # variance across population
+        var_pop = torch.var(x, 2);
+        var_pop = torch.mean(var_pop, 1);
+
+        return torch.stack((trend, var_time, var_pop), 1);
+
         
