@@ -22,7 +22,8 @@ class Data_utility(object):
         self._split(int(train * self.n), int((train+valid) * self.n), self.n);
         
         self.scale = torch.from_numpy(self.scale).float();
-        tmp = self.test[1] * self.scale.expand(self.test[1].size(0), self.m);
+        self.scale = self.scale.unsqueeze(1); # added for broadcasting for multi-step forecasting
+        tmp = self.test[1] * self.scale.expand(self.test[1].size(0), self.m)
             
         if self.cuda:
             self.scale = self.scale.cuda();
@@ -58,16 +59,19 @@ class Data_utility(object):
         
         
     def _batchify(self, idx_set, horizon):
-        
+        # self.h is the same as horizon
         n = len(idx_set);
         X = torch.zeros((n,self.P,self.m));
-        Y = torch.zeros((n,self.m));
+        # Y = torch.zeros((n,self.m));
+        Y = torch.zeros((n,self.h,self.m));
+        
         
         for i in range(n):
             end = idx_set[i] - self.h + 1;
             start = end - self.P;
             X[i,:,:] = torch.from_numpy(self.dat[start:end, :]);
-            Y[i,:] = torch.from_numpy(self.dat[idx_set[i], :]);
+            # Y[i,:] = torch.from_numpy(self.dat[idx_set[i], :]);
+            Y[i,:,:] = torch.from_numpy(self.dat[end:idx_set[i]+1, :]);
 
         return [X, Y];
 

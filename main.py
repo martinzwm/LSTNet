@@ -58,6 +58,7 @@ def train(data, X, Y, model, criterion, optim, batch_size):
         model.zero_grad();
         output = model(X);
         scale = data.scale.expand(output.size(0), data.m)
+        print(output.size(), scale.size(), Y.size())
         loss = criterion(output * scale, Y * scale);
         loss.backward();
         grad_norm = optim.step();
@@ -107,7 +108,7 @@ parser.add_argument('--hidSkip', type=int, default=5)
 parser.add_argument('--L1Loss', type=bool, default=True)
 parser.add_argument('--normalize', type=int, default=2)
 parser.add_argument('--output_fun', type=str, default='sigmoid')
-parser.add_argument('--wandb', type=bool, default=False)
+parser.add_argument('--wandb', type=int, default=0)
 args = parser.parse_args()
 
 args.cuda = args.gpu is not None
@@ -126,7 +127,7 @@ Data = Data_utility(args.data, 0.6, 0.2, args.cuda, args.horizon, args.window, a
 # print(Data.valid[0].size(), Data.valid[1].size())
 # print(Data.test[0].size(), Data.test[1].size())
 # raise NameError('stop')
-print(Data.rse);
+# print(Data.rse);
 
 model = eval(args.model).Model(args, Data);
 
